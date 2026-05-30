@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import asyncio
 
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8768952437:AAH2N_5Drz3r5XYd5kC_ha4AHg3R8OeQzJw')
 PORT = int(os.environ.get('PORT', 5000))
 app = Flask(__name__)
 
