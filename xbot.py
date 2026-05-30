@@ -9,7 +9,7 @@ from flask import Flask, jsonify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN = os.environ.get('8768952437:AAH2N_5Drz3r5XYd5kC_ha4AHg3R8OeQzJw', '')
+BOT_TOKEN = os.environ.get('8768952437:AAH2N_5Drz3r5XYd5kC_ha4AHg3R8OeQzJw ', '')
 PORT = int(os.environ.get('PORT', 5000))
 
 app = Flask(__name__)
